@@ -14,7 +14,7 @@
 			height: 100%;
 			overflow: hidden;
 			overscroll-behavior: none;
-			background: #000;
+			background: #121724;
 			touch-action: none;
 			-webkit-user-select: none;
 			user-select: none;
@@ -46,11 +46,21 @@
 			flex-direction: column;
 			align-items: center;
 			justify-content: center;
-			color: #ddd;
-			font: 16px sans-serif;
-			background: #000;
+			color: #cfd6e6;
+			font: 15px sans-serif;
+			background: #121724;
 		}
-		#status-progress { width: 50%; max-width: 240px; }
+		#status-logo { width: 96px; height: 96px; margin-bottom: 28px; border-radius: 20px; }
+		#status-bar {
+			width: 60%;
+			max-width: 260px;
+			height: 8px;
+			border-radius: 4px;
+			background: #2a3248;
+			overflow: hidden;
+		}
+		#status-fill { width: 0; height: 100%; background: #f2b84b; transition: width 0.15s linear; }
+		#status-text { margin-top: 12px; font-variant-numeric: tabular-nums; }
 		#status-notice {
 			display: none;
 			margin: 16px;
@@ -65,37 +75,53 @@
 <body>
 	<canvas id="canvas">Your browser does not support HTML5 canvas.</canvas>
 	<div id="status">
-		<progress id="status-progress" value="0" max="1"></progress>
+		<img id="status-logo" src="index.icon.png" alt="" onerror="this.style.display='none'">
+		<div id="status-bar"><div id="status-fill"></div></div>
+		<div id="status-text"></div>
 		<div id="status-notice"></div>
 	</div>
 	<script src="index.js"></script>
 	<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":35415144,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":24948928,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 		const engine = new Engine(GODOT_CONFIG);
 		const statusEl = document.getElementById('status');
-		const progressEl = document.getElementById('status-progress');
+		const barEl = document.getElementById('status-bar');
+		const fillEl = document.getElementById('status-fill');
+		const textEl = document.getElementById('status-text');
 		const noticeEl = document.getElementById('status-notice');
+		const isZh = (navigator.language || '').toLowerCase().startsWith('zh');
+		const TEXT = isZh
+			? { loading: '載入遊戲中', init: '正在啟動遊戲…' }
+			: { loading: 'Loading', init: 'Starting game…' };
 
 		function showNotice(text) {
-			progressEl.style.display = 'none';
+			barEl.style.display = 'none';
+			textEl.style.display = 'none';
 			noticeEl.style.display = 'block';
 			noticeEl.textContent = text;
+		}
+
+		function updateProgress(current, total) {
+			if (!(total > 0)) {
+				textEl.textContent = TEXT.loading + '…';
+				return;
+			}
+			const ratio = Math.min(current / total, 1);
+			fillEl.style.width = (ratio * 100).toFixed(1) + '%';
+			if (ratio >= 1) {
+				textEl.textContent = TEXT.init;
+			} else {
+				const mb = (n) => (n / 1048576).toFixed(1);
+				textEl.textContent = TEXT.loading + ' ' + Math.floor(ratio * 100) + '%（' + mb(current) + ' / ' + mb(total) + ' MB）';
+			}
 		}
 
 		const missing = Engine.getMissingFeatures({ threads: GODOT_CONFIG.ensureCrossOriginIsolationHeaders });
 		if (missing.length > 0) {
 			showNotice('Browser unsupported:\n' + missing.join('\n'));
 		} else {
-			engine.startGame({
-				onProgress: (current, total) => {
-					if (total > 0) {
-						progressEl.value = current;
-						progressEl.max = total;
-					} else {
-						progressEl.removeAttribute('value');
-					}
-				},
-			}).then(() => {
+			updateProgress(0, 0);
+			engine.startGame({ onProgress: updateProgress }).then(() => {
 				statusEl.style.display = 'none';
 			}, (err) => {
 				showNotice(String(err));
