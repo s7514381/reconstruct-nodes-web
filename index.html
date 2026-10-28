@@ -21,6 +21,12 @@
 			-webkit-touch-callout: none;
 			-webkit-tap-highlight-color: transparent;
 		}
+		/* iOS WebKit 會拒絕 user-select:none 的 input 輸入，Godot 虛擬鍵盤依賴隱藏 input */
+		input, textarea {
+			-webkit-user-select: text;
+			user-select: text;
+			font-size: 16px;
+		}
 		body {
 			position: fixed;
 			inset: 0;
