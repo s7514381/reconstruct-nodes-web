@@ -82,7 +82,7 @@
 	</div>
 	<script src="index.js"></script>
 	<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":24982796,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":24985772,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 		const engine = new Engine(GODOT_CONFIG);
 		const statusEl = document.getElementById('status');
 		const barEl = document.getElementById('status-bar');
@@ -142,15 +142,28 @@
 		// iOS 只允許在使用者手勢（touchend 等）的呼叫堆疊裡 focus() 隱藏 input 才會升起鍵盤；Godot 在遊戲迴圈裡才處理輸入，
 		// 呼叫 focus() 時手勢已過。遊戲端（WebVirtualKeyboard）回報目前有輸入框取得焦點與文字，
 		// 這裡在每次 touchend 後的 1 秒內（WebKit 會把手勢授權延續給這段時間內的計時器）補一次 focus。
-		const vkState = { wanted: false, multiline: false, text: '', caret: 0 };
-		window.rnKeyboard = (wanted, multiline, text, caret) => {
+		const vkState = { wanted: false, multiline: false, text: '', caret: 0, useJs: false };
+		window.rnKeyboard = (wanted, multiline, text, caret, useJs) => {
 			vkState.wanted = wanted;
 			vkState.multiline = multiline;
 			vkState.text = text;
 			vkState.caret = caret;
+			vkState.useJs = useJs;
+			vkElement();
 		};
 		const vkElement = () => {
 			const all = Array.from(document.querySelectorAll('input, textarea')).filter((el) => el.style.zIndex === '-1');
+			all.forEach((el) => {
+				if (el.rnBound) { return; }
+				el.rnBound = true;
+				// 子視窗內的輸入框收不到 Godot 轉送的輸入，改由這裡直接把文字傳回遊戲
+				el.addEventListener('input', () => {
+					if (vkState.useJs && window.rnKeyboardInput) {
+						vkState.text = el.value;
+						window.rnKeyboardInput(el.value, el.selectionEnd);
+					}
+				});
+			});
 			return all.find((el) => el.style.display === 'block') || all.find((el) => (el.tagName === 'TEXTAREA') === vkState.multiline);
 		};
 		const vkRefocus = () => {
