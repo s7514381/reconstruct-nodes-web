@@ -82,7 +82,7 @@
 	</div>
 	<script src="index.js"></script>
 	<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":24964148,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":24966616,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 		const engine = new Engine(GODOT_CONFIG);
 		const statusEl = document.getElementById('status');
 		const barEl = document.getElementById('status-bar');
@@ -148,11 +148,7 @@
 			const lines = [];
 			let last = '';
 			let repeat = 1;
-			const record = (e) => {
-				const p = (e.changedTouches && e.changedTouches[0]) || e;
-				const tag = e.target && e.target.tagName ? e.target.tagName : '?';
-				const text = e.type + ' ' + tag + ' ' + Math.round(p.clientX) + ',' + Math.round(p.clientY) + (e.cancelable === false ? ' !cancelable' : '') + (e.defaultPrevented ? ' prevented' : '');
-				const key = e.type + tag;
+			const push = (key, text) => {
 				if (key === last && lines.length > 0) {
 					repeat++;
 					lines[lines.length - 1] = text + ' x' + repeat;
@@ -160,10 +156,17 @@
 					last = key;
 					repeat = 1;
 					lines.push(text);
-					if (lines.length > 14) { lines.shift(); }
+					if (lines.length > 18) { lines.shift(); }
 				}
 				panel.textContent = lines.join('\n');
 			};
+			const record = (e) => {
+				const p = (e.changedTouches && e.changedTouches[0]) || e;
+				const tag = e.target && e.target.tagName ? e.target.tagName : '?';
+				push(e.type + tag, e.type + ' ' + Math.round(p.clientX) + ',' + Math.round(p.clientY) + (e.cancelable === false ? ' !cancelable' : '') + (e.defaultPrevented ? ' prevented' : ''));
+			};
+			// 遊戲端（WebTouchDebug）寫入的狀態，字串開頭為 G:
+			window.rnDebug = (text) => push(text, text);
 			['touchstart', 'touchmove', 'touchend', 'touchcancel', 'pointerdown', 'pointercancel', 'pointerup', 'mousedown', 'mouseup', 'click']
 				.forEach((type) => window.addEventListener(type, record, { capture: true, passive: true }));
 		}
