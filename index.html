@@ -82,7 +82,7 @@
 	</div>
 	<script src="index.js"></script>
 	<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":24966584,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":24982796,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 		const engine = new Engine(GODOT_CONFIG);
 		const statusEl = document.getElementById('status');
 		const barEl = document.getElementById('status-bar');
@@ -138,6 +138,42 @@
 		HTMLInputElement.prototype.setSelectionRange = function () {
 			try { return nativeSetSelectionRange.apply(this, arguments); } catch (e) { /* 該型別不支援選取範圍 */ }
 		};
+
+		// iOS 只允許在使用者手勢（touchend 等）的呼叫堆疊裡 focus() 隱藏 input 才會升起鍵盤；Godot 在遊戲迴圈裡才處理輸入，
+		// 呼叫 focus() 時手勢已過。遊戲端（WebVirtualKeyboard）回報目前有輸入框取得焦點與文字，
+		// 這裡在每次 touchend 後的 1 秒內（WebKit 會把手勢授權延續給這段時間內的計時器）補一次 focus。
+		const vkState = { wanted: false, multiline: false, text: '', caret: 0 };
+		window.rnKeyboard = (wanted, multiline, text, caret) => {
+			vkState.wanted = wanted;
+			vkState.multiline = multiline;
+			vkState.text = text;
+			vkState.caret = caret;
+		};
+		const vkElement = () => {
+			const all = Array.from(document.querySelectorAll('input, textarea')).filter((el) => el.style.zIndex === '-1');
+			return all.find((el) => el.style.display === 'block') || all.find((el) => (el.tagName === 'TEXTAREA') === vkState.multiline);
+		};
+		const vkRefocus = () => {
+			const el = vkElement();
+			if (!vkState.wanted || !el || document.activeElement === el) { return; }
+			if (el.style.display !== 'block') {
+				el.disabled = false;
+				el.readOnly = false;
+				el.value = vkState.text;
+				el.style.display = 'block';
+			}
+			el.focus();
+			el.setSelectionRange(vkState.caret, vkState.caret);
+			if (window.rnDebug) { window.rnDebug('JS:refocus ' + el.tagName + ' active=' + (document.activeElement === el)); }
+		};
+		window.addEventListener('touchend', () => {
+			let ticks = 0;
+			const tick = () => {
+				vkRefocus();
+				if (++ticks < 12) { setTimeout(tick, 60); }
+			};
+			tick();
+		}, { capture: true, passive: true });
 
 		// 網址帶 ?debug=touch 時，在畫面上顯示瀏覽器實際送到頁面的觸控／指標／滑鼠事件，
 		// 用來在 iOS 實機區分「事件沒進來」與「遊戲沒處理」；一般玩家不會看到。
