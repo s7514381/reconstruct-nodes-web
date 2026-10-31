@@ -82,7 +82,7 @@
 	</div>
 	<script src="index.js"></script>
 	<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":25126360,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":25142972,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 		const engine = new Engine(GODOT_CONFIG);
 		const statusEl = document.getElementById('status');
 		const barEl = document.getElementById('status-bar');
@@ -285,6 +285,68 @@
 				if (activeRequest) { finishGoogle(activeRequest.id, GOOGLE_OUTCOME.CANCELLED, ''); }
 			},
 		};
+
+			// AdSense H5 Games Ads 獎勵廣告橋接。outcome：0=看完 1=中途關閉 2=無廣告 3=錯誤。
+			const ADS_OUTCOME = { VIEWED: 0, DISMISSED: 1, NO_AD: 2, ERROR: 3 };
+			const ADS_LOAD_TIMEOUT_MS = 30000;
+			let adsLoadPromise = null;
+			let adsBusy = false;
+
+			function loadAdsense(publisherId, testMode) {
+				if (adsLoadPromise) { return adsLoadPromise; }
+				window.adsbygoogle = window.adsbygoogle || [];
+				window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+				adsLoadPromise = new Promise((resolve, reject) => {
+					const script = document.createElement('script');
+					script.async = true;
+					script.crossOrigin = 'anonymous';
+					script.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + encodeURIComponent(publisherId);
+					script.setAttribute('data-ad-client', publisherId);
+					if (testMode) { script.setAttribute('data-adbreak-test', 'on'); }
+					script.onload = () => resolve();
+					script.onerror = () => { adsLoadPromise = null; reject(new Error('adsense load failed')); };
+					document.head.appendChild(script);
+				});
+				window.adConfig({ preloadAdBreaks: 'on', sound: 'on', onReady() {} });
+				return adsLoadPromise;
+			}
+
+			window.reconstructWebAds = {
+				show(publisherId, testMode, callback) {
+					if (adsBusy) { callback(ADS_OUTCOME.ERROR); return; }
+					adsBusy = true;
+					let done = false;
+					let started = false;
+					let viewed = false;
+					let dismissed = false;
+					let timer = null;
+					const finish = (outcome) => {
+						if (done) { return; }
+						done = true;
+						adsBusy = false;
+						if (timer) { clearTimeout(timer); }
+						callback(outcome);
+					};
+					loadAdsense(publisherId, testMode).then(() => {
+						if (done) { return; }
+						timer = setTimeout(() => { if (!started) { finish(ADS_OUTCOME.NO_AD); } }, ADS_LOAD_TIMEOUT_MS);
+						window.adBreak({
+							type: 'reward',
+							name: 'diamond_reward',
+							beforeReward: (showAd) => { started = true; if (timer) { clearTimeout(timer); timer = null; } showAd(); },
+							adViewed: () => { viewed = true; },
+							adDismissed: () => { dismissed = true; },
+							adBreakDone: (info) => {
+								const status = info && info.breakStatus;
+								if (viewed) { finish(ADS_OUTCOME.VIEWED); }
+								else if (dismissed || status === 'dismissed') { finish(ADS_OUTCOME.DISMISSED); }
+								else if (status === 'error') { finish(ADS_OUTCOME.ERROR); }
+								else { finish(started ? ADS_OUTCOME.ERROR : ADS_OUTCOME.NO_AD); }
+							},
+						});
+					}, () => finish(ADS_OUTCOME.ERROR));
+				},
+			};
 	</script>
 </body>
 </html>
