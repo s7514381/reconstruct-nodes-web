@@ -82,8 +82,7 @@
 	</div>
 	<script src="index.js"></script>
 	<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":27671860,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
-		const engine = new Engine(GODOT_CONFIG);
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":27676232,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 		const statusEl = document.getElementById('status');
 		const barEl = document.getElementById('status-bar');
 		const fillEl = document.getElementById('status-fill');
@@ -116,10 +115,78 @@
 			}
 		}
 
-		const missing = Engine.getMissingFeatures({ threads: GODOT_CONFIG.ensureCrossOriginIsolationHeaders });
-		if (missing.length > 0) {
+		// XSOLLA-RETURN-BEGIN
+		// Xsolla 付款完成返回頁（?xsolla_return=1）：不啟動 Godot（避免付款分頁另開一份遊戲），只用 same-origin BroadcastChannel／storage 事件
+		// 通知原遊戲分頁「重新查詢訂單」。訊號不帶任何 URL query（status／user_id／invoice），也絕不作為發貨依據。
+		function xsollaReturnConstants() {
+			return { param: 'xsolla_return', channel: 'reconstruct-xsolla-return', storageKey: 'reconstruct.xsolla.return', type: 'xsolla_return', dedupeMs: 500 };
+		}
+
+		function isXsollaReturnSearch(search) {
+			try { return new URLSearchParams(String(search || '')).get(xsollaReturnConstants().param) === '1'; } catch (e) { return false; }
+		}
+
+		function xsollaReturnText(language) {
+			const zh = String(language || '').toLowerCase().indexOf('zh') === 0;
+			return zh
+				? '正在確認付款結果…\n請切回原本的遊戲分頁，這個分頁可以關閉。'
+				: 'Checking payment status…\nPlease switch back to the original game tab. You can close this tab.';
+		}
+
+		// 返回分頁端：廣播訊號、嘗試關閉自己（瀏覽器可能拒絕），回傳是否已關閉。env: BroadcastChannel、localStorage、now、closeSelf。
+		function announceXsollaReturn(env) {
+			const c = xsollaReturnConstants();
+			try {
+				if (env.BroadcastChannel) {
+					const channel = new env.BroadcastChannel(c.channel);
+					channel.postMessage({ type: c.type });
+					channel.close();
+				}
+			} catch (e) { /* ignore */ }
+			try { env.localStorage.setItem(c.storageKey, String(env.now())); } catch (e) { /* ignore */ }
+			try { env.closeSelf(); } catch (e) { /* ignore */ }
+		}
+
+		// 原遊戲端：只接受格式嚴格的訊號（type 符合／storage key 符合），短時間重複訊號只通知一次。回傳停止監聽的函式。
+		// env: BroadcastChannel、addStorageListener(fn)、removeStorageListener(fn)、now。
+		function listenXsollaReturn(env, onSignal) {
+			const c = xsollaReturnConstants();
+			let last = -Infinity;
+			const fire = () => {
+				const t = env.now();
+				if (t - last < c.dedupeMs) { return; }
+				last = t;
+				onSignal();
+			};
+			let channel = null;
+			try {
+				if (env.BroadcastChannel) {
+					channel = new env.BroadcastChannel(c.channel);
+					channel.onmessage = (e) => { if (e && e.data && e.data.type === c.type) { fire(); } };
+				}
+			} catch (e) { channel = null; }
+			const onStorage = (e) => { if (e && e.key === c.storageKey && e.newValue) { fire(); } };
+			env.addStorageListener(onStorage);
+			return () => {
+				env.removeStorageListener(onStorage);
+				if (channel) { try { channel.close(); } catch (e) { /* ignore */ } }
+			};
+		}
+		// XSOLLA-RETURN-END
+
+		const XSOLLA_RETURN_MODE = isXsollaReturnSearch(location.search);
+
+		const missing = XSOLLA_RETURN_MODE ? [] : Engine.getMissingFeatures({ threads: GODOT_CONFIG.ensureCrossOriginIsolationHeaders });
+		if (XSOLLA_RETURN_MODE) {
+			showNotice(xsollaReturnText(navigator.language));
+			announceXsollaReturn({
+				BroadcastChannel: window.BroadcastChannel, localStorage: window.localStorage, now: () => Date.now(),
+				closeSelf: () => window.close(),
+			});
+		} else if (missing.length > 0) {
 			showNotice('Browser unsupported:\n' + missing.join('\n'));
 		} else {
+			const engine = new Engine(GODOT_CONFIG);
 			updateProgress(0, 0);
 			engine.startGame({ onProgress: updateProgress }).then(() => {
 				statusEl.style.display = 'none';
@@ -353,7 +420,27 @@
 			// 關閉視窗不代表付款取消：結果永遠以後端 webhook 後的訂單狀態為準。
 			const XSOLLA_HOSTS = ['secure.xsolla.com', 'sandbox-secure.xsolla.com'];
 			let xsollaWindow = null;
+			let xsollaReturnHandler = null;
+			let xsollaReturnPending = false;
+			if (!XSOLLA_RETURN_MODE) {
+				// 返回訊號只代表「重新查詢訂單」，由遊戲端依自己的 journal 與登入狀態查詢，絕不直接入帳。
+				listenXsollaReturn({
+					BroadcastChannel: window.BroadcastChannel, now: () => Date.now(),
+					addStorageListener: (fn) => window.addEventListener('storage', fn),
+					removeStorageListener: (fn) => window.removeEventListener('storage', fn),
+				}, () => {
+					if (xsollaWindow && !xsollaWindow.closed) { try { xsollaWindow.close(); } catch (e) { /* ignore */ } }
+					if (xsollaReturnHandler) { xsollaReturnHandler(); } else { xsollaReturnPending = true; }
+				});
+			}
 			window.reconstructXsollaPay = {
+				setReturnHandler(handler) {
+					xsollaReturnHandler = typeof handler === 'function' ? handler : null;
+					if (xsollaReturnHandler && xsollaReturnPending) {
+						xsollaReturnPending = false;
+						xsollaReturnHandler();
+					}
+				},
 				openBlank() {
 					if (xsollaWindow && !xsollaWindow.closed) { xsollaWindow.close(); }
 					xsollaWindow = window.open('', '_blank');
