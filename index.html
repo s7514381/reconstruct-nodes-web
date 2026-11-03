@@ -82,7 +82,7 @@
 	</div>
 	<script src="index.js"></script>
 	<script>
-		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":25353948,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+		const GODOT_CONFIG = {"args":[],"canvasResizePolicy":2,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"index","experimentalVK":true,"fileSizes":{"index.pck":27671860,"index.wasm":37695054},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
 		const engine = new Engine(GODOT_CONFIG);
 		const statusEl = document.getElementById('status');
 		const barEl = document.getElementById('status-bar');
@@ -345,6 +345,34 @@
 							},
 						});
 					}, () => finish(ADS_OUTCOME.ERROR));
+				},
+			};
+
+			// Web 版 Xsolla Pay Station 結帳視窗。openBlank 必須在使用者點擊的同一個同步流程呼叫（避免被 popup blocker 攔截）；
+			// 後端非同步回傳結帳網址後才 navigate，網址只接受 https 的 Xsolla 官方結帳主機，不執行任何腳本。
+			// 關閉視窗不代表付款取消：結果永遠以後端 webhook 後的訂單狀態為準。
+			const XSOLLA_HOSTS = ['secure.xsolla.com', 'sandbox-secure.xsolla.com'];
+			let xsollaWindow = null;
+			window.reconstructXsollaPay = {
+				openBlank() {
+					if (xsollaWindow && !xsollaWindow.closed) { xsollaWindow.close(); }
+					xsollaWindow = window.open('', '_blank');
+					if (!xsollaWindow) { return false; }
+					try { xsollaWindow.opener = null; } catch (e) { /* ignore */ }
+					return true;
+				},
+				navigate(url) {
+					if (!xsollaWindow || xsollaWindow.closed) { return false; }
+					let parsed;
+					try { parsed = new URL(String(url)); } catch (e) { return false; }
+					if (parsed.protocol !== 'https:' || XSOLLA_HOSTS.indexOf(parsed.hostname) < 0) { return false; }
+					xsollaWindow.location.href = parsed.href;
+					return true;
+				},
+				isOpen() { return !!xsollaWindow && !xsollaWindow.closed; },
+				close() {
+					if (xsollaWindow && !xsollaWindow.closed) { xsollaWindow.close(); }
+					xsollaWindow = null;
 				},
 			};
 	</script>
